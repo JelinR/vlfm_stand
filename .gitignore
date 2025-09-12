@@ -199,3 +199,4 @@ data
 habitat-lab
 data/
 data/pointnav_weights.pth
+lockfiles/

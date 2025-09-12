@@ -57,6 +57,7 @@ habitat_baselines:
 
   eval:
     split: "val"
+    video_option: ["disk"]    #TODO Added
 
   rl:
 
@@ -104,3 +105,8 @@ habitat_baselines:
       backbone: resnet50
       rnn_type: LSTM
       num_recurrent_layers: 2
+
+
+extra_args:
+  log_dir: logs/junk/
+  save_frames_as: final     #Options: final, all, gif

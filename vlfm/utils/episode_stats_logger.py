@@ -21,11 +21,17 @@ def log_episode_stats(episode_id: int, scene_id: str, infos: Dict) -> str:
         infos: The info dict from the environment after update with policy info.
     """
     scene = os.path.basename(scene_id).split(".")[0]
-    if infos["success"] == 1:
-        failure_cause = "did_not_fail"
-    else:
-        failure_cause = determine_failure_cause(infos)
-        print(f"Episode {episode_id} in scene {scene} failed due to '{failure_cause}'.")
+
+    ###TODO Changed: Adding a try-except clause inside this, instead of out in vlfm_trainer
+    # This ensures that the episode is logged even when the failure is unknown
+    try:
+        if infos["success"] == 1:
+            failure_cause = "did_not_fail"
+        else:
+            failure_cause = determine_failure_cause(infos)
+            print(f"Episode {episode_id} in scene {scene} failed due to '{failure_cause}'.")
+    except:
+        failure_cause = "Unkown"
 
     if "ZSOS_LOG_DIR" in os.environ:
         infos_no_map = infos.copy()

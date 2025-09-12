@@ -37,6 +37,24 @@ from habitat_baselines.utils.info_dict import (
 from omegaconf import OmegaConf
 
 
+###TODO Added
+from habitat_baselines.rl.ppo.policy import PolicyActionData
+###
+
+
+###TODO Added: Get current habitat position for each env
+def get_curr_hab_pos(vec_envs):
+
+    curr_hab_pos = {}
+    for i in range(vec_envs.num_envs):
+
+        agent_state = vec_envs.call_at(index = i,
+                                       function_name = "get_curr_state")
+        curr_hab_pos[i] = agent_state.position
+    #print(f" Current Hab position: {agent_state.position}\n Current Hab Rotation: {agent_state.rotation}")
+    return curr_hab_pos
+###
+
 def extract_scalars_from_info(info: Dict[str, Any]) -> Dict[str, float]:
     info_filtered = {k: v for k, v in info.items() if not isinstance(v, list)}
     return extract_scalars_from_info_habitat(info_filtered)
@@ -95,6 +113,14 @@ class VLFMTrainer(PPOTrainer):
 
         if config.habitat_baselines.verbose:
             logger.info(f"env config: {OmegaConf.to_yaml(config)}")
+
+        ###TODO Added: Enforce extra_args, and initialize Log Dir
+        os.environ["ZSOS_LOG_DIR"] = os.path.join(os.getcwd(), config.extra_args.log_dir)
+        os.makedirs(os.environ["ZSOS_LOG_DIR"], exist_ok=True)
+        print(f"\nSetting Logging Directory to be: {os.environ['ZSOS_LOG_DIR']}\n")
+
+        assert config.extra_args.save_frames_as in ['final', 'all', 'gif'], "Please provide a valid option for save_frames_as arg. Possible Options are: final, all, gif"
+        ###
 
         ###TODO Added
         #Change directory to initialize env using data in habitat-lab
@@ -181,14 +207,50 @@ class VLFMTrainer(PPOTrainer):
         while len(stats_episodes) < (number_of_eval_episodes * evals_per_ep) and self.envs.num_envs > 0:
             current_episodes_info = self.envs.current_episodes()
 
+            ###TODO Added: Check if logged file already exists. If so, then skip the episode
+            curr_scene_name = os.path.basename(current_episodes_info[0].scene_id).split(".")[0]
+            curr_episode_id = current_episodes_info[0].episode_id
+
+            #If Episode was done
+            if not not_done_masks[0][0]:
+
+                print(f"\n\nCurrent Scene Name: {curr_scene_name}")
+                print(f"Current Episode ID: {curr_episode_id}")
+
+                #If Logged file already exists, then skip the current episode.
+                log_file_name = f"{curr_episode_id}_{curr_scene_name}.json"        
+                log_file_path = os.path.join(self.config.extra_args.log_dir, log_file_name)
+
+                print(f"\nLog File path: ", log_file_path)
+                skip_episode = os.path.exists(log_file_path)
+
+                if skip_episode:
+                    print(f"\n\n----Logged File already exists at: {log_file_path}.\nSkipping Episode {curr_episode_id} for Scene {curr_scene_name}...")
+            ###
+
+
             with inference_mode():
-                action_data = self._agent.actor_critic.act(
-                    batch,
-                    test_recurrent_hidden_states,
-                    prev_actions,
-                    not_done_masks,
-                    deterministic=False,
-                )
+
+                ###TODO Changed: Accounting for skip_episode. 
+                # If false, then implements the usual case of obtaining the action.
+                if not skip_episode:
+                    action_data = self._agent.actor_critic.act(
+                        batch,
+                        test_recurrent_hidden_states,
+                        prev_actions,
+                        not_done_masks,
+                        deterministic=False,
+                    )
+                else:
+                    stop_action = torch.tensor([[0]], dtype=torch.long)
+                    
+                    action_data = PolicyActionData(
+                                    actions=stop_action,
+                                    rnn_hidden_states=test_recurrent_hidden_states,
+                                    # policy_info=[{"step_action": {}}],
+                                )
+
+
                 if "VLFM_RECORD_ACTIONS_DIR" in os.environ:
                     action_id = action_data.actions.cpu()[0].item()
                     filepath = os.path.join(
@@ -231,6 +293,23 @@ class VLFMTrainer(PPOTrainer):
             policy_infos = self._agent.actor_critic.get_extra(action_data, infos, dones)
             for i in range(len(policy_infos)):
                 infos[i].update(policy_infos[i])
+
+
+            ###TODO ADDED: Save the agent position to txt file
+            if (self._agent.actor_critic._num_steps > 0) and \
+                (self._agent.actor_critic._num_steps < self.config.habitat.environment.max_episode_steps):
+                
+                save_traj_path = os.path.join(self.config.extra_args.log_dir, "trajectory", f"{curr_episode_id}_{curr_scene_name}.txt")
+                os.makedirs(os.path.dirname(save_traj_path), exist_ok = True)
+
+                curr_hab_pos = get_curr_hab_pos(self.envs)[0]
+                num_steps = self._agent.actor_critic._num_steps
+                
+                with open(save_traj_path, "a" if num_steps > 1 else "w") as f:
+                    f.write(f"{self._agent.actor_critic._num_steps}, {curr_hab_pos[0]}, {curr_hab_pos[1]}, {curr_hab_pos[2]}\n")
+                    # print(f"Saved Trajectory at step {num_steps} to {save_traj_path}")
+            ###
+
             batch = batch_obs(  # type: ignore
                 observations,
                 device=self.device,
@@ -262,8 +341,10 @@ class VLFMTrainer(PPOTrainer):
                 elif int(next_episodes_info[i].episode_id) == 123123123:
                     envs_to_pause.append(i)
 
-                if len(self.config.habitat_baselines.eval.video_option) > 0:
+                ###TODO Changed: Adding the skip_episode check
+                if (not skip_episode) and (len(self.config.habitat_baselines.eval.video_option) > 0):
                     hab_vis.collect_data(batch, infos, action_data.policy_info)
+                ###
 
                 # episode ended
                 if not not_done_masks[i].item():
@@ -284,34 +365,94 @@ class VLFMTrainer(PPOTrainer):
                     num_total += 1
                     print(f"Success rate: {num_successes / num_total * 100:.2f}% ({num_successes} out of {num_total})")
 
-                    from vlfm.utils.episode_stats_logger import (
-                        log_episode_stats,
-                    )
 
-                    try:
+                    ###TODO Added: skip_episode check
+                    if (not skip_episode):
+                    ###
+
+                        from vlfm.utils.episode_stats_logger import (
+                            log_episode_stats,
+                        )
+
+                        ###TODO Added: Adding relevant info in infos
+                        infos[i]["num_steps"] = self._agent.actor_critic._num_steps
+                        infos[i]["final_pos"] = [float(coord) for coord in get_curr_hab_pos(self.envs)[i]]
+                        ###
+
+                        ###TODO Changed: Adding a try-except clause inside this, instead of out in vlfm_trainer
+                        # This ensures that the episode is logged even when the failure is unknown
+                        # try:
+                        #     failure_cause = log_episode_stats(
+                        #         current_episodes_info[i].episode_id,
+                        #         current_episodes_info[i].scene_id,
+                        #         infos[i],
+                        #     )
+                        # except Exception:
+                        #     failure_cause = "Unknown"
+
                         failure_cause = log_episode_stats(
                             current_episodes_info[i].episode_id,
                             current_episodes_info[i].scene_id,
                             infos[i],
                         )
-                    except Exception:
-                        failure_cause = "Unknown"
 
-                    if len(self.config.habitat_baselines.eval.video_option) > 0:
-                        rgb_frames[i] = hab_vis.flush_frames(failure_cause)
-                        generate_video(
-                            video_option=self.config.habitat_baselines.eval.video_option,
-                            video_dir=self.config.habitat_baselines.video_dir,
-                            images=rgb_frames[i],
-                            episode_id=current_episodes_info[i].episode_id,
-                            checkpoint_idx=checkpoint_index,
-                            metrics=extract_scalars_from_info(infos[i]),
-                            fps=self.config.habitat_baselines.video_fps,
-                            tb_writer=writer,
-                            keys_to_include_in_name=self.config.habitat_baselines.eval_keys_to_include_in_name,
-                        )
+                        ###
 
-                        rgb_frames[i] = []
+                        if len(self.config.habitat_baselines.eval.video_option) > 0:
+                            rgb_frames[i] = hab_vis.flush_frames(failure_cause)
+
+                            ###TODO Changed: Instead of a video, save the last frame or all the frames
+                            # generate_video(
+                            #     video_option=self.config.habitat_baselines.eval.video_option,
+                            #     video_dir=self.config.habitat_baselines.video_dir,
+                            #     images=rgb_frames[i],
+                            #     episode_id=current_episodes_info[i].episode_id,
+                            #     checkpoint_idx=checkpoint_index,
+                            #     metrics=extract_scalars_from_info(infos[i]),
+                            #     fps=self.config.habitat_baselines.video_fps,
+                            #     tb_writer=writer,
+                            #     keys_to_include_in_name=self.config.habitat_baselines.eval_keys_to_include_in_name,
+                            # )
+
+                            from PIL import Image
+                            images = np.array(rgb_frames[i])                        
+                            curr_scene_name = os.path.basename(current_episodes_info[i].scene_id).split(".")[0]
+
+                            frames_root_dir = os.path.join(config.extra_args.log_dir, 'gifs')
+                            if not os.path.exists(frames_root_dir): os.makedirs(frames_root_dir, exist_ok=True)
+                            
+                            
+                            #Save only Final Frame
+                            if config.extra_args.save_frames_as == "final":
+                                final_file_path = os.path.join(frames_root_dir, f'scene_{curr_scene_name}_ep_{current_episodes_info[i].episode_id}.png')
+                                final_frame = Image.fromarray(images[-1])
+                                final_frame.save(final_file_path, format="PNG")
+                                print(f"Created Last Frame Image at: {final_file_path}")
+
+                            #Save all the Frames
+                            elif config.extra_args.save_frames_as == "all":
+
+                                save_all_dir = os.path.join(frames_root_dir, f"{curr_scene_name}/{current_episodes_info[i].episode_id}")
+                                os.makedirs(save_all_dir, exist_ok=True)
+
+                                print(f"Saving all the frames at : {save_all_dir}")
+                                for i in tqdm.tqdm(range(len(images))):
+
+                                    pad_i = str(i).zfill(3)
+                                    frame_save_path = os.path.join(save_all_dir, f'vis_{pad_i}.png')
+
+                                    curr_frame = Image.fromarray(images[i])
+                                    curr_frame.save(frame_save_path, format="PNG")
+
+                            #Save as GIF
+                            elif config.extra_args.save_frames_as == "gif":
+                                gif_file_path = os.path.join(frames_root_dir, f'scene_{curr_scene_name}_ep_{current_episodes_info[i].episode_id}.gif')
+                                gif_images = list(map(Image.fromarray, images))
+                                gif_images[0].save(gif_file_path, save_all=True, append_images=gif_images[1:], duration=200, loop=0)
+                                print(f'Created gif at : {gif_file_path}')
+                            ###
+
+                            rgb_frames[i] = []
 
                     gfx_str = infos[i].get(GfxReplayMeasure.cls_uuid, "")
                     if gfx_str != "":
