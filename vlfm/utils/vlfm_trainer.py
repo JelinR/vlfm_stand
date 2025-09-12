@@ -96,7 +96,20 @@ class VLFMTrainer(PPOTrainer):
         if config.habitat_baselines.verbose:
             logger.info(f"env config: {OmegaConf.to_yaml(config)}")
 
+        ###TODO Added
+        #Change directory to initialize env using data in habitat-lab
+        curr_dir = os.getcwd()
+        hab_dir = os.path.join(curr_dir, 'habitat-lab')
+        print(f"Chaning directory to : {hab_dir}")
+        os.chdir(hab_dir)
+        ###
+
         self._init_envs(config, is_eval=True)
+
+        ###TODO Added
+        print(f"Changing back directory to: {curr_dir}")
+        os.chdir(curr_dir)
+        ###
 
         self._agent = self._create_agent(None)
         action_shape, discrete_actions = get_action_space_info(self._agent.policy_action_space)
@@ -110,13 +123,17 @@ class VLFMTrainer(PPOTrainer):
 
         current_episode_reward = torch.zeros(self.envs.num_envs, 1, device="cpu")
 
+        ###TODO Changed: Replacing hidden_state_shape with placeholder shape
+        # This is fine since we are not using an RL policy in VLFM
         test_recurrent_hidden_states = torch.zeros(
             (
                 self.config.habitat_baselines.num_environments,
-                *self._agent.hidden_state_shape,
+                *(1, 512), #*self._agent.hidden_state_shape,
             ),
             device=self.device,
         )
+        ###
+
         prev_actions = torch.zeros(
             self.config.habitat_baselines.num_environments,
             *action_shape,

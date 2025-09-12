@@ -186,3 +186,16 @@ habitat-lab/
 GroundingDINO/
 __pycache__/
 *.pyc
+data/
+GroundingDINO/
+MobileSAM/
+habitat-lab/
+yolov7
+outputs/
+tb/
+GroundingDINO
+MobileSAM
+data
+habitat-lab
+data/
+data/pointnav_weights.pth

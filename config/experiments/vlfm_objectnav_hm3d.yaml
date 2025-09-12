@@ -28,6 +28,14 @@ habitat:
       base_explorer:
         turn_angle: 30
 
+
+  ###TODO Added
+  dataset:
+    scenes_dir: "data/scene_datasets"
+    data_path: "data/datasets/objectnav/hm3d/v1/val/val.json.gz"
+    # content_scenes: ["4ok3usBNeis"]
+  ###
+
 habitat_baselines:
   evaluate: True
   eval_ckpt_path_dir: data/dummy_policy.pth
