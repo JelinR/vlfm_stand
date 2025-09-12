@@ -30,6 +30,9 @@ class HabitatConfigPlugin(SearchPathPlugin):
     def manipulate_search_path(self, search_path: ConfigSearchPath) -> None:
         search_path.append(provider="habitat", path="config/")
 
+        #TODO Check: Append ovon config
+        search_path.append(provider="ovon", path="pkg://ovon/ovon/config.py")
+
 
 register_hydra_plugin(HabitatConfigPlugin)
 
@@ -37,7 +40,8 @@ register_hydra_plugin(HabitatConfigPlugin)
 @hydra.main(
     version_base=None,
     config_path="../config",
-    config_name="experiments/vlfm_objectnav_hm3d",
+    # config_name="experiments/vlfm_objectnav_hm3d",
+    config_name="experiments/vlfm_objectnav_ovon",
 )
 def main(cfg: DictConfig) -> None:
     assert os.path.isdir("data"), "Missing 'data/' directory!"

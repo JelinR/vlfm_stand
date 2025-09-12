@@ -25,6 +25,19 @@ from ..mapping.obstacle_map import ObstacleMap
 from .base_objectnav_policy import BaseObjectNavPolicy, VLFMConfig
 from .itm_policy import ITMPolicy, ITMPolicyV2, ITMPolicyV3
 
+###TODO Added: OVON
+try:
+    from ovon.ovon.task.sensors import ClipObjectGoalSensor
+    from ovon.utils.utils import load_pickle
+except ModuleNotFoundError:
+    print(f"Could not load OVON Module. This is fine if you are not using OVON ObjectNav Dataset.")
+
+import hashlib
+
+def array_hash(arr: np.ndarray) -> str:
+    return hashlib.sha256(arr.tobytes()).hexdigest()
+###
+
 HM3D_ID_TO_NAME = ["chair", "bed", "potted plant", "toilet", "tv", "couch"]
 MP3D_ID_TO_NAME = [
     "chair",
@@ -71,6 +84,8 @@ class HabitatMixin:
     _policy_info: Dict[str, Any] = {}
     _compute_frontiers: bool = False
 
+    OVON_ID_TO_NAME: Dict = {}          #TODO Added: OVON
+
     def __init__(
         self,
         camera_height: float,
@@ -109,7 +124,14 @@ class HabitatMixin:
         # Only bother visualizing if we're actually going to save the video
         kwargs["visualize"] = len(config.habitat_baselines.eval.video_option) > 0
 
-        if "hm3d" in config.habitat.dataset.data_path:
+        ###TODO Added: OVON
+        if "ovon" in config.habitat.dataset.data_path:
+            kwargs["dataset_type"] = "ovon"
+            ovon_cat_to_embed_path = f"habitat-lab/{config.habitat.task.lab_sensors.clip_objectgoal_sensor.cache}"
+            ovon_cat_to_embed = load_pickle(ovon_cat_to_embed_path)
+            cls.OVON_ID_TO_NAME = {array_hash(v): k for k, v in ovon_cat_to_embed.items()}
+        ###
+        elif "hm3d" in config.habitat.dataset.data_path:
             kwargs["dataset_type"] = "hm3d"
         elif "mp3d" in config.habitat.dataset.data_path:
             kwargs["dataset_type"] = "mp3d"
@@ -127,11 +149,17 @@ class HabitatMixin:
         deterministic: bool = False,
     ) -> PolicyActionData:
         """Converts object ID to string name, returns action as PolicyActionData"""
-        object_id: int = observations[ObjectGoalSensor.cls_uuid][0].item()
+        # object_id: int = observations[ObjectGoalSensor.cls_uuid][0].item()        #TODO Changed: Commented and moved inside the if conditions
         obs_dict = observations.to_tree()
-        if self._dataset_type == "hm3d":
+
+        if self._dataset_type == "ovon":                                            #TODO Added: OVON
+            object_embed = observations[ClipObjectGoalSensor.cls_uuid].cpu().numpy()
+            obs_dict["objectgoal"] = self.OVON_ID_TO_NAME[array_hash(object_embed)]
+        elif self._dataset_type == "hm3d":
+            object_id: int = observations[ObjectGoalSensor.cls_uuid][0].item()
             obs_dict[ObjectGoalSensor.cls_uuid] = HM3D_ID_TO_NAME[object_id]
         elif self._dataset_type == "mp3d":
+            object_id: int = observations[ObjectGoalSensor.cls_uuid][0].item()
             obs_dict[ObjectGoalSensor.cls_uuid] = MP3D_ID_TO_NAME[object_id]
             self._non_coco_caption = " . ".join(MP3D_ID_TO_NAME).replace("|", " . ") + " ."
         else:

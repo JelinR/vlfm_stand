@@ -200,3 +200,4 @@ habitat-lab
 data/
 data/pointnav_weights.pth
 lockfiles/
+ovon
