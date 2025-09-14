@@ -149,12 +149,13 @@ class VLFMTrainer(PPOTrainer):
 
         current_episode_reward = torch.zeros(self.envs.num_envs, 1, device="cpu")
 
-        ###TODO Changed: Replacing hidden_state_shape with placeholder shape
-        # This is fine since we are not using an RL policy in VLFM
+        ###TODO Changed: Updating the hidden_state_shape with correct call
+        print(self._agent.actor_critic._pointnav_policy.pointnav_test_recurrent_hidden_states.shape)
         test_recurrent_hidden_states = torch.zeros(
             (
                 self.config.habitat_baselines.num_environments,
-                *(1, 512), #*self._agent.hidden_state_shape,
+                *self._agent.actor_critic._pointnav_policy.pointnav_test_recurrent_hidden_states.shape[1:]
+                #*(4, 512), #*self._agent.hidden_state_shape,
             ),
             device=self.device,
         )
