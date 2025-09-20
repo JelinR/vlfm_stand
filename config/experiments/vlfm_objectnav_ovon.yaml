@@ -30,7 +30,7 @@ habitat:
       base_explorer:
         turn_angle: 30
 
-      # TODO: OVON Added
+      TODO: OVON Added
       clip_objectgoal_sensor:
         cache: data/datasets/ovon/text_embeddings/siglip.pkl
     measurements:
